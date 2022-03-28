@@ -128,11 +128,10 @@ void process_file(const char *file_path)
     {
         int c = read_utf8_char(file);
 
-        if (c == '\0')
-        {
+        if (c == 0)
             break;
-        }
-        else if (is_in_word && is_separator(c))
+
+        if (is_in_word && is_separator(c))
         {
             if (is_consonant(last_c))
             {
@@ -141,13 +140,13 @@ void process_file(const char *file_path)
 
             is_in_word = 0;
         }
-        else if (!is_in_word && (is_vowel(c) || is_number(c) || is_consonant(c) || c == '_'))
+        else if (!is_in_word && is_vowel(c))
         {
-            if (is_vowel(c))
-            {
-                words_vowel_start_number++;
-            }
-
+            is_in_word = 1;
+            words_number++;
+        }
+        else if (!is_in_word && (is_number(c) || is_consonant(c) || c == '_'))
+        {
             is_in_word = 1;
             words_number++;
         }
