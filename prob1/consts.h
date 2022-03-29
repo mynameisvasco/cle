@@ -1,0 +1,2 @@
+#define WORKERS_N 5
+#define FILE_PARTITIONS_N 10
