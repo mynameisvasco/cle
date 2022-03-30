@@ -1,80 +1,96 @@
 #include <time.h>
 #include <stdlib.h>
-#include "consts.h"
 #include "utf8.h"
 #include "file.h"
 #include <stdio.h>
 #include <pthread.h>
 
+#define WORKERS_N 3
+
 typedef struct
 {
-  int file_id;
-  long start_position;
-  long end_position;
-  char *buffer;
+  FILE *file;
+  long start;
+  long end;
   int words_number;
-} worker_args_t;
+  int words_vowel_start_number;
+  int words_consonant_ending_number;
+} worker_unit_t;
 
-static pthread_t *threads;
-static worker_args_t *workers_args;
+static worker_unit_t **workers_units;
+static pthread_t *worker_threads;
 
 void *worker(void *argp)
 {
-  worker_args_t *args = (worker_args_t *)argp;
+  int worker_index = *(int *)argp;
+  int files_n = *(int *)(argp + 4);
 
-  FILE *partial_file = fmemopen(args->buffer, args->end_position - args->start_position, "rb");
-  int last_c = 0;
-  int is_in_word = 0;
-  int words_number = 0;
-
-  while (1)
+  for (int i = worker_index * files_n; i < (worker_index + 1) * files_n; i++)
   {
-    int c = read_u8char(partial_file);
+    worker_unit_t *worker_unit = workers_units[i];
+    unsigned char buffer[worker_unit->end - worker_unit->start];
+    fseek(worker_unit->file, worker_unit->start, SEEK_SET);
+    fread(buffer, worker_unit->end - worker_unit->start, 1, worker_unit->file);
+    int is_in_word = 0;
+    int last_c = 0;
+    int read_bytes = 0;
+    int c = read_u8char_buffer(buffer, &read_bytes);
 
-    if (c == 0)
-      break;
+    while ((worker_unit->start + read_bytes) <= worker_unit->end && c != 0)
+    {
+      if (is_in_word && is_separator(c))
+      {
+        if (is_consonant(last_c))
+        {
+          worker_unit->words_consonant_ending_number++;
+        }
 
-    if (is_in_word && is_separator(c))
-    {
-      is_in_word = 0;
-    }
-    else if (!is_in_word && is_vowel(c))
-    {
-      is_in_word = 1;
-      words_number++;
-    }
-    else if (!is_in_word && (is_number(c) || is_consonant(c) || c == '_'))
-    {
-      is_in_word = 1;
-      words_number++;
+        is_in_word = 0;
+      }
+      else if (!is_in_word && is_vowel(c))
+      {
+        is_in_word = 1;
+        worker_unit->words_number++;
+        worker_unit->words_vowel_start_number++;
+      }
+      else if (!is_in_word && (is_number(c) || is_consonant(c) || c == '_'))
+      {
+        is_in_word = 1;
+        worker_unit->words_number++;
+      }
+
+      if (is_separator(c) || is_vowel(c) || is_number(c) || is_consonant(c) || c == '_' || c == '\'')
+      {
+        last_c = c;
+      }
+
+      c = read_u8char_buffer(buffer, &read_bytes);
     }
 
-    if (is_separator(c) || is_vowel(c) || is_number(c) || is_consonant(c) || c == '_' || c == '\'')
-    {
-      last_c = c;
-    }
+    fclose(worker_unit->file);
   }
 
-  args->words_number = words_number;
+  free(argp);
   return NULL;
 }
 
 int alloc_shared_variables(int files_n)
 {
-  threads = malloc(files_n * WORKERS_N * sizeof(pthread_t));
-  workers_args = malloc(files_n * WORKERS_N * sizeof(worker_args_t));
+  workers_units = malloc(files_n * WORKERS_N * sizeof(worker_unit_t *));
+  worker_threads = malloc(WORKERS_N * sizeof(pthread_t));
   return 0;
 }
 
 int free_shared_variables()
 {
-  free(threads);
-  free(workers_args);
+  free(worker_threads);
   return 0;
 }
 
 int main(int argc, char **argv)
 {
+  clock_t begin = clock();
+
   if (argc < 2)
   {
     printf("Wrong number of arguments\n, Usage: ./a.out test1.txt test2.txt ...\n");
@@ -82,65 +98,63 @@ int main(int argc, char **argv)
   }
 
   int files_n = argc - 1;
-  long **positions = malloc(files_n * sizeof(long[WORKERS_N + 2]));
+  long **partitions = get_files_partitions(WORKERS_N, argv, files_n);
   alloc_shared_variables(files_n);
-  clock_t begin = clock();
 
-  for (int i = 1; i < argc; i++)
+  for (int file_index = 0; file_index < files_n; file_index++)
   {
-    FILE *file = fopen(argv[i], "rb");
-
-    if (file == NULL)
+    for (long worker_index = 0; worker_index < WORKERS_N; worker_index++)
     {
-      printf("File %s not found.\n", argv[i]);
-      exit(-1);
-    }
-
-    positions[i - 1] = get_file_partitions(WORKERS_N, file);
-
-    for (int j = 0; j < WORKERS_N; j++)
-    {
-      int index = j * files_n + (i - 1);
-
-      workers_args[index].file_id = i - 1;
-      workers_args[index].start_position = positions[i - 1][j];
-      workers_args[index].end_position = positions[i - 1][j + 1];
-      workers_args[index].words_number = 0;
-      long size = workers_args[index].end_position - workers_args[index].start_position;
-      workers_args[index].buffer = malloc(sizeof(char) * size);
-      fseek(file, workers_args[index].start_position, SEEK_SET);
-      fread(workers_args[index].buffer, 1, size, file);
-      pthread_create(&threads[index], NULL, worker, &(workers_args[index]));
+      worker_unit_t *worker_unit = malloc(sizeof(worker_unit_t));
+      worker_unit->file = fopen(argv[file_index + 1], "rb");
+      worker_unit->start = partitions[file_index][worker_index];
+      worker_unit->end = partitions[file_index][worker_index + 1];
+      worker_unit->words_consonant_ending_number = 0;
+      worker_unit->words_vowel_start_number = 0;
+      worker_unit->words_number = 0;
+      workers_units[worker_index * files_n + file_index] = worker_unit;
     }
   }
 
-  for (int i = 1; i < argc; i++)
+  for (int thread_index = 0; thread_index < WORKERS_N; thread_index++)
   {
-    for (int j = 0; j < WORKERS_N; j++)
-    {
-      int index = j * files_n + (i - 1);
-      pthread_join(threads[index], NULL);
-    }
+    int *args = malloc(sizeof(int) * 2);
+    args[0] = thread_index;
+    args[1] = files_n;
+    pthread_create(&worker_threads[thread_index], NULL, worker, args);
   }
 
-  int *words_number = calloc(files_n, sizeof(int));
-
-  for (int i = 1; i < argc; i++)
+  for (int thread_index = 0; thread_index < WORKERS_N; thread_index++)
   {
-    for (int j = 0; j < WORKERS_N; j++)
+    pthread_join(worker_threads[thread_index], NULL);
+  }
+
+  for (int file_index = 0; file_index < files_n; file_index++)
+  {
+    int words_number = 0;
+    int words_vowel_start_number = 0;
+    int words_consonant_ending_number = 0;
+
+    for (long partition = 0; partition < WORKERS_N; partition++)
     {
-      int index = j * files_n + (i - 1);
-      words_number[i - 1] += workers_args[index].words_number;
+      worker_unit_t *worker_unit = workers_units[partition * files_n + file_index];
+      words_number += worker_unit->words_number;
+      words_vowel_start_number += worker_unit->words_vowel_start_number;
+      words_consonant_ending_number += worker_unit->words_consonant_ending_number;
+      free(worker_unit);
     }
 
-    printf("File: %d\n", i - 1);
-    printf("Number of words: %d\n", words_number[i - 1]);
+    printf("File: %1d\n", file_index);
+    printf("Number of words: %d\n", words_number);
+    printf("Number of words starting with vowels: %d\n", words_vowel_start_number);
+    printf("Number of words ending with consonants: %d\n", words_consonant_ending_number);
   }
 
   clock_t end = clock();
   double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
   printf("Elapsed time = %.3f s\n", time_spent);
   free_shared_variables();
-  free(words_number);
+  free(partitions);
+  free(workers_units);
   return 0;
 }

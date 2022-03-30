@@ -2,17 +2,22 @@
 
 int is_vowel(unsigned int c)
 {
-  int ac_vowels[40] = {
-      0x61,
-      0x65,
-      0x69,
-      0x6F,
-      0x75,
-      0x41,
-      0x45,
-      0x49,
-      0x4F,
-      0x55,
+  if (c == 0x61 ||
+      c == 0x65 ||
+      c == 0x69 ||
+      c == 0x6F ||
+      c == 0x75 ||
+      c == 0x41 ||
+      c == 0x45 ||
+      c == 0x49 ||
+      c == 0x4F ||
+      c == 0x55)
+    return 1;
+
+  if (c >> 8 != 0xC3)
+    return 0;
+
+  int ac_vowels[30] = {
       0xC3A1,
       0xC3A0,
       0xC3A2,
@@ -44,13 +49,9 @@ int is_vowel(unsigned int c)
       0xC39A,
       0xC399};
 
-  for (int i = 0; i < 40; i++)
-  {
+  for (int i = 0; i < 30; i++)
     if (c == ac_vowels[i])
-    {
       return 1;
-    }
-  }
 
   return 0;
 }
@@ -76,23 +77,30 @@ int is_number(unsigned int c)
   return c >= 48 && c <= 57;
 }
 
-int read_u8char(FILE *file)
+int read_u8char(FILE *file, int *read_bytes)
 {
   unsigned char buffer[4] = {0, 0, 0, 0};
   unsigned int c = 0;
   fread(buffer, 1, 1, file);
   c = buffer[0];
 
+  if (read_bytes != NULL)
+    *read_bytes += 1;
+
   if ((buffer[0] >> 5) == 0b110)
   {
     fread(&buffer[1], 1, 1, file);
     c = (c << 8) | (buffer[1] & 0xff);
+    if (read_bytes != NULL)
+      *read_bytes += 1;
   }
   else if ((buffer[0] >> 4) == 0b1110)
   {
     fread(&buffer[1], 1, 2, file);
     c = (c << 8) | (buffer[1] & 0xff);
     c = (c << 8) | (buffer[2] & 0xff);
+    if (read_bytes != NULL)
+      *read_bytes += 2;
   }
   else if ((buffer[0] >> 3) == 0b11110)
   {
@@ -100,6 +108,36 @@ int read_u8char(FILE *file)
     c = (c << 8) | (buffer[1] & 0xff);
     c = (c << 8) | (buffer[2] & 0xff);
     c = (c << 8) | (buffer[2] & 0xff);
+    if (read_bytes != NULL)
+      *read_bytes += 3;
+  }
+
+  return c;
+}
+
+int read_u8char_buffer(unsigned char *buffer, int *read_bytes)
+{
+  unsigned int c = 0;
+  c = buffer[*read_bytes];
+  *read_bytes += 1;
+
+  if ((buffer[*read_bytes - 1] >> 5) == 0b110)
+  {
+    c = (c << 8) | (buffer[*read_bytes] & 0xff);
+    *read_bytes += 1;
+  }
+  else if ((buffer[*read_bytes - 1] >> 4) == 0b1110)
+  {
+    c = (c << 8) | (buffer[*read_bytes] & 0xff);
+    c = (c << 8) | (buffer[*read_bytes + 1] & 0xff);
+    *read_bytes += 2;
+  }
+  else if ((buffer[*read_bytes - 1] >> 3) == 0b11110)
+  {
+    c = (c << 8) | (buffer[*read_bytes] & 0xff);
+    c = (c << 8) | (buffer[*read_bytes + 1] & 0xff);
+    c = (c << 8) | (buffer[*read_bytes + 2] & 0xff);
+    *read_bytes += 3;
   }
 
   return c;
