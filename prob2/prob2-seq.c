@@ -16,10 +16,17 @@ void swap_columns(double (*matrix)[SIZE], int *x, int *y)
     }
 }
 
-// Looks for matrix coefficients on the upper triangule with value different from 0
-void process_matrix(double (*matrix)[SIZE], int *signal_reversion)
+void transformation(double *kj, double ki, double ii, double ij)
 {
-    for (int i = 0; i < SIZE - 1; i++)
+    *kj = *kj - ((ki / ii) * ij);
+}
+
+// Looks for matrix coefficients on the upper triangule with value different from 0
+// and transforms the matrix on an upper trigular matrix
+double process_matrix(double (*matrix)[SIZE], int *signal_reversion)
+{
+    double determinant = 1;
+    for (int i = 0; i < SIZE; i++)
     {
         if (matrix[i][i] == 0)
         {
@@ -30,10 +37,20 @@ void process_matrix(double (*matrix)[SIZE], int *signal_reversion)
                 {
                     swap_columns(matrix, &i, &j);
                     *signal_reversion = !(*signal_reversion);
+                    break;
                 }
             }
         }
+        for (int j = i; j < SIZE; j++)
+        {
+            for (int k = i + 1; k < SIZE; k++)
+            {
+                transformation(&matrix[k][j], matrix[k][i], matrix[i][i], matrix[i][j]);
+            }
+        }
+        determinant *= matrix[i][i];
     }
+    return determinant;
 }
 
 // Reads the binary file where the matrices are stored and decodes the matrices ad additional parameters
@@ -43,7 +60,7 @@ void process_file(char *file_path)
 
     if (file == NULL)
     {
-        printf("FIle %s was not found!\n", file_path);
+        printf("File %s was not found!\n", file_path);
     }
 
     // reads the number of matrixes and the matrixes order (int = 4 bytes)
@@ -52,22 +69,76 @@ void process_file(char *file_path)
     fread(&matrix_count, sizeof(int), 1, file);
     fread(&matrix_order, sizeof(int), 1, file);
 
-    printf("Number of matrices to be read: %d\n", matrix_count);
-    printf("Matrices order: %d\n", matrix_order);
-
-    double matrix[matrix_order][matrix_order];
-
     SIZE = matrix_order;
 
-    while (matrix_count-- > 0)
-    {
-        for (int i = 0; i < matrix_order; i++)
-        {
-            fread(&matrix[i], sizeof(double), matrix_order, file);
-        }
+    printf("Number of matrices to be read: %d\n", matrix_count);
+    printf("Matrices order: %d\n\n", SIZE);
 
-        process_matrix(matrix, &signal_reversion);
+    // double matrix[5][5] = {{1, 2, 3, 4, 5}, {6, 7, 8, 9, 10}, {11, 12, 13, 14, 15}, {16, 17, 18, 19, 20}, {21, 22, 23, 24, 25}};
+
+    // printf("\nBefore Processing...\n");
+
+    // for (int i = 0; i < SIZE; i++)
+    // {
+    //     for (int j = 0; j < SIZE; j++)
+    //     {
+    //         printf("%.3f\t", matrix[i][j]);
+    //     }
+    //     printf("\n");
+    // }
+    // double det = process_matrix(matrix, &signal_reversion);
+
+    // printf("\nAfter Processing...\n");
+
+    // for (int i = 0; i < SIZE; i++)
+    // {
+    //     for (int j = 0; j < SIZE; j++)
+    //     {
+    //         printf("%.3f\t", matrix[i][j]);
+    //     }
+    //     printf("\n");
+    // }
+
+    // printf("\nThe determinant is %.3e\n", det);
+
+    double matrix[SIZE][SIZE];
+    // int cont = 1;
+    // while (matrix_count-- > 0)
+    // {
+    // printf("Processing matrix %d\n", cont++);
+    for (int i = 0; i < matrix_order; i++)
+    {
+        fread(&matrix[i], sizeof(double), matrix_order, file);
     }
+
+    // printf("\nBefore Processing...\n");
+
+    // for (int i = 0; i < SIZE; i++)
+    // {
+    //     for (int j = 0; j < SIZE; j++)
+    //     {
+    //         printf("%.3f\t", matrix[i][j]);
+    //     }
+    //     printf("\n");
+    // }
+
+    double det = process_matrix(matrix, &signal_reversion);
+
+    // printf("\nAfter Processing...\n");
+
+    // for (int i = 0; i < SIZE; i++)
+    // {
+    //     for (int j = 0; j < SIZE; j++)
+    //     {
+    //         printf("%.3f\t", matrix[i][j]);
+    //     }
+    //     printf("\n");
+    // }
+
+    if (signal_reversion)
+        det = -det;
+    printf("The determinant is %.3e\n", det);
+    // }
 }
 
 int main(int argc, char **argv)
