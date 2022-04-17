@@ -4,7 +4,7 @@
 #include "fifo.h"
 #include "utf8.h"
 
-#define WORKERS_N 8
+#define WORKERS_N 7
 
 typedef struct file_result_t
 {
@@ -63,6 +63,9 @@ void *worker_lifecycle(void *argp)
     for (int i = 0; i < CHUNK_SIZE; i++)
     {
       unsigned int c = chunk->buffer[i];
+
+      if (c == 0)
+        break;
 
       if (is_in_word && is_separator(c))
       {

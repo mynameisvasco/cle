@@ -2,7 +2,7 @@
 #include <pthread.h>
 
 #define SIGNAL_TERMINATE 9997
-#define CHUNK_SIZE 10240
+#define CHUNK_SIZE 4096
 #define FIFO_SIZE 32
 
 typedef struct file_chunk_t
