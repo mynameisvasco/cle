@@ -77,30 +77,23 @@ int is_number(unsigned int c)
   return c >= 48 && c <= 57;
 }
 
-int read_u8char(FILE *file, int *read_bytes)
+int read_u8char(FILE *file)
 {
   unsigned char buffer[4] = {0, 0, 0, 0};
   unsigned int c = 0;
   fread(buffer, 1, 1, file);
   c = buffer[0];
 
-  if (read_bytes != NULL)
-    *read_bytes += 1;
-
   if ((buffer[0] >> 5) == 0b110)
   {
     fread(&buffer[1], 1, 1, file);
     c = (c << 8) | (buffer[1] & 0xff);
-    if (read_bytes != NULL)
-      *read_bytes += 1;
   }
   else if ((buffer[0] >> 4) == 0b1110)
   {
     fread(&buffer[1], 1, 2, file);
     c = (c << 8) | (buffer[1] & 0xff);
     c = (c << 8) | (buffer[2] & 0xff);
-    if (read_bytes != NULL)
-      *read_bytes += 2;
   }
   else if ((buffer[0] >> 3) == 0b11110)
   {
@@ -108,37 +101,18 @@ int read_u8char(FILE *file, int *read_bytes)
     c = (c << 8) | (buffer[1] & 0xff);
     c = (c << 8) | (buffer[2] & 0xff);
     c = (c << 8) | (buffer[2] & 0xff);
-    if (read_bytes != NULL)
-      *read_bytes += 3;
   }
 
   return c;
 }
 
-int read_u8char_buffer(unsigned char *buffer, int *read_bytes)
+long get_needed_bytes(unsigned int n)
 {
-  unsigned int c = 0;
-  c = buffer[*read_bytes];
-  *read_bytes += 1;
-
-  if ((buffer[*read_bytes - 1] >> 5) == 0b110)
-  {
-    c = (c << 8) | (buffer[*read_bytes] & 0xff);
-    *read_bytes += 1;
-  }
-  else if ((buffer[*read_bytes - 1] >> 4) == 0b1110)
-  {
-    c = (c << 8) | (buffer[*read_bytes] & 0xff);
-    c = (c << 8) | (buffer[*read_bytes + 1] & 0xff);
-    *read_bytes += 2;
-  }
-  else if ((buffer[*read_bytes - 1] >> 3) == 0b11110)
-  {
-    c = (c << 8) | (buffer[*read_bytes] & 0xff);
-    c = (c << 8) | (buffer[*read_bytes + 1] & 0xff);
-    c = (c << 8) | (buffer[*read_bytes + 2] & 0xff);
-    *read_bytes += 3;
-  }
-
-  return c;
+  if (n < 256)
+    return 1;
+  else if (n < 65536)
+    return 2;
+  else if (n < 16777216)
+    return 3;
+  return 4;
 }
