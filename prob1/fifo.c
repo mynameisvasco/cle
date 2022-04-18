@@ -30,7 +30,6 @@ void insert_fifo(fifo_t *fifo, file_chunk_t *chunk)
   }
 
   unsigned int idx = fifo->inp;
-  unsigned int prev = (idx + FIFO_SIZE - 1) % FIFO_SIZE;
   fifo->array[idx] = chunk;
   fifo->inp = (fifo->inp + 1) % FIFO_SIZE;
   fifo->cnt++;

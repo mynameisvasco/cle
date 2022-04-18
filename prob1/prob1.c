@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "fifo.h"
 #include "utf8.h"
 
-#define WORKERS_N 7
+struct timespec start, finish;
 
 typedef struct file_result_t
 {
@@ -14,18 +15,22 @@ typedef struct file_result_t
   unsigned int words_consonant_ending_number;
 } file_result_t;
 
-static fifo_t *queue;
+static int files_n = 0;
+static int workers_n = 0;
 static file_result_t *results;
 static pthread_mutex_t *results_mutex;
-static pthread_t workers[WORKERS_N];
+static pthread_t *workers;
+static fifo_t *fifos;
+static char *files_paths[10];
 
-void init_shared_memory(unsigned int files_n)
+void init_shared_memory()
 {
-  queue = malloc(sizeof(fifo_t));
+  workers = malloc(sizeof(pthread_t) * workers_n);
+  fifos = malloc(sizeof(fifo_t) * workers_n);
   results = malloc(sizeof(file_result_t) * files_n);
   results_mutex = malloc(sizeof(pthread_mutex_t) * files_n);
 
-  for (unsigned int i = 0; i < files_n; i++)
+  for (int i = 0; i < files_n; i++)
   {
     results[i].words_number = 0;
     results[i].words_vowel_start_number = 0;
@@ -33,12 +38,16 @@ void init_shared_memory(unsigned int files_n)
     pthread_mutex_init(&results_mutex[i], NULL);
   }
 
-  init_fifo(queue);
+  for (int i = 0; i < workers_n; i++)
+  {
+    init_fifo(&fifos[i]);
+  }
 }
 
 void free_shared_memory()
 {
-  free(queue);
+  free(workers);
+  free(fifos);
   free(results);
   free(results_mutex);
 }
@@ -47,7 +56,8 @@ void *worker_lifecycle(void *argp)
 {
   while (1)
   {
-    file_chunk_t *chunk = retrieve_fifo(queue);
+    int worker_id = *(int *)argp;
+    file_chunk_t *chunk = retrieve_fifo(&fifos[worker_id]);
 
     if (chunk->file_id == SIGNAL_TERMINATE)
     {
@@ -108,7 +118,6 @@ void *worker_lifecycle(void *argp)
 int main(int argc, char **argv)
 {
   clock_t begin = clock();
-  int files_n = argc - 1;
 
   if (argc < 2)
   {
@@ -116,16 +125,31 @@ int main(int argc, char **argv)
     exit(-1);
   }
 
-  init_shared_memory(files_n);
+  int input = 0;
 
-  for (int worker_index = 0; worker_index < WORKERS_N; worker_index++)
+  while (input != -1)
   {
-    pthread_create(&workers[worker_index], NULL, worker_lifecycle, NULL);
+    input = getopt(argc, argv, "t:i:");
+    if (input == 't')
+      workers_n = atoi(optarg);
+    else if (input == 'i')
+      files_paths[files_n++] = optarg;
   }
 
-  for (int file_index = 1; file_index <= files_n; file_index++)
+  init_shared_memory();
+
+  for (int worker_index = 0; worker_index < workers_n; worker_index++)
   {
-    char *file_path = argv[file_index];
+    int *worker_id = malloc(sizeof(int));
+    *worker_id = worker_index;
+    pthread_create(&workers[worker_index], NULL, worker_lifecycle, worker_id);
+  }
+
+  int chunk_id = 0;
+
+  for (int file_index = 0; file_index < files_n; file_index++)
+  {
+    char *file_path = files_paths[file_index];
     FILE *file = fopen(file_path, "rb");
     unsigned int c;
 
@@ -138,13 +162,18 @@ int main(int argc, char **argv)
       for (unsigned int c_index = 0; c_index < CHUNK_SIZE; c_index++)
       {
         c = read_u8char(file);
-        chunk->file_id = file_index - 1;
-        chunk->buffer[c_index] = c;
 
         if (is_separator(c))
         {
           last_separator_index = c_index;
         }
+        else if (c == 0)
+        {
+          break;
+        }
+
+        chunk->file_id = file_index;
+        chunk->buffer[c_index] = c;
       }
 
       for (unsigned int c_index = last_separator_index + 1; c_index < CHUNK_SIZE; c_index++)
@@ -157,20 +186,20 @@ int main(int argc, char **argv)
       }
 
       fseek(file, -backward_bytes, SEEK_CUR);
-      insert_fifo(queue, chunk);
+      insert_fifo(&fifos[chunk_id++ % workers_n], chunk);
     } while (c != 0);
 
     fclose(file);
   }
 
-  for (int worker_index = 0; worker_index < WORKERS_N; worker_index++)
+  for (int worker_index = 0; worker_index < workers_n; worker_index++)
   {
     file_chunk_t *terminate_chunk = malloc(sizeof(file_chunk_t));
     terminate_chunk->file_id = SIGNAL_TERMINATE;
-    insert_fifo(queue, terminate_chunk);
+    insert_fifo(&fifos[worker_index], terminate_chunk);
   }
 
-  for (int worker_index = 0; worker_index < WORKERS_N; worker_index++)
+  for (int worker_index = 0; worker_index < workers_n; worker_index++)
   {
     pthread_join(workers[worker_index], NULL);
   }
