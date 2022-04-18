@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "fifo.h"
+#include <unistd.h>
+#include <pthread.h>
 #include "utf8.h"
 
-#define WORKERS_N 7
+struct timespec start, finish;
 
 typedef struct file_result_t
 {
@@ -14,14 +15,17 @@ typedef struct file_result_t
   unsigned int words_consonant_ending_number;
 } file_result_t;
 
-static fifo_t *queue;
+static FILE *files[10];
+static int current_file = 0;
+static int workers_n = 4;
+static int files_n = 0;
 static file_result_t *results;
 static pthread_mutex_t *results_mutex;
-static pthread_t workers[WORKERS_N];
+static pthread_t *workers;
 
 void init_shared_memory(unsigned int files_n)
 {
-  queue = malloc(sizeof(fifo_t));
+  workers = malloc(sizeof(pthread_t) * workers_n);
   results = malloc(sizeof(file_result_t) * files_n);
   results_mutex = malloc(sizeof(pthread_mutex_t) * files_n);
 
@@ -32,13 +36,11 @@ void init_shared_memory(unsigned int files_n)
     results[i].words_consonant_ending_number = 0;
     pthread_mutex_init(&results_mutex[i], NULL);
   }
-
-  init_fifo(queue);
 }
 
 void free_shared_memory()
 {
-  free(queue);
+  free(workers);
   free(results);
   free(results_mutex);
 }
@@ -47,12 +49,10 @@ void *worker_lifecycle(void *argp)
 {
   while (1)
   {
-    file_chunk_t *chunk = retrieve_fifo(queue);
+    file_chunk_t *chunk = get_file_chunk(files, &current_file, files_n);
 
-    if (chunk->file_id == SIGNAL_TERMINATE)
-    {
+    if (chunk == NULL)
       break;
-    }
 
     int is_in_word = 0;
     unsigned int last_c = 0;
@@ -70,9 +70,7 @@ void *worker_lifecycle(void *argp)
       if (is_in_word && is_separator(c))
       {
         if (is_consonant(last_c))
-        {
           words_consonant_ending_number++;
-        }
 
         is_in_word = 0;
       }
@@ -89,9 +87,7 @@ void *worker_lifecycle(void *argp)
       }
 
       if (is_separator(c) || is_vowel(c) || is_number(c) || is_consonant(c) || c == '_' || c == '\'')
-      {
         last_c = c;
-      }
     }
 
     pthread_mutex_lock(&results_mutex[chunk->file_id]);
@@ -107,8 +103,8 @@ void *worker_lifecycle(void *argp)
 
 int main(int argc, char **argv)
 {
-  clock_t begin = clock();
-  int files_n = argc - 1;
+  clock_gettime(CLOCK_MONOTONIC, &start);
+  double elapsed;
 
   if (argc < 2)
   {
@@ -116,63 +112,35 @@ int main(int argc, char **argv)
     exit(-1);
   }
 
+  int c = 0;
+
+  while (c != -1)
+  {
+    c = getopt(argc, argv, "t:i:");
+    if (c == 't')
+      workers_n = atoi(optarg);
+    else if (c == 'i')
+      files[files_n++] = fopen(optarg, "rb");
+  }
+
   init_shared_memory(files_n);
 
-  for (int worker_index = 0; worker_index < WORKERS_N; worker_index++)
+  for (int worker_index = 0; worker_index < workers_n; worker_index++)
   {
-    pthread_create(&workers[worker_index], NULL, worker_lifecycle, NULL);
-  }
-
-  for (int file_index = 1; file_index <= files_n; file_index++)
-  {
-    char *file_path = argv[file_index];
-    FILE *file = fopen(file_path, "rb");
-    unsigned int c;
-
-    do
+    if (pthread_create(&workers[worker_index], NULL, worker_lifecycle, NULL))
     {
-      file_chunk_t *chunk = malloc(sizeof(file_chunk_t));
-      unsigned int last_separator_index = 0;
-      long backward_bytes = 0;
-
-      for (unsigned int c_index = 0; c_index < CHUNK_SIZE; c_index++)
-      {
-        c = read_u8char(file);
-        chunk->file_id = file_index - 1;
-        chunk->buffer[c_index] = c;
-
-        if (is_separator(c))
-        {
-          last_separator_index = c_index;
-        }
-      }
-
-      for (unsigned int c_index = last_separator_index + 1; c_index < CHUNK_SIZE; c_index++)
-      {
-        if (chunk->buffer[c_index] != 0)
-        {
-          backward_bytes += get_needed_bytes(chunk->buffer[c_index]);
-          chunk->buffer[c_index] = 0;
-        }
-      }
-
-      fseek(file, -backward_bytes, SEEK_CUR);
-      insert_fifo(queue, chunk);
-    } while (c != 0);
-
-    fclose(file);
+      printf("Thread creation error\n");
+      exit(1);
+    }
   }
 
-  for (int worker_index = 0; worker_index < WORKERS_N; worker_index++)
+  for (int worker_index = 0; worker_index < workers_n; worker_index++)
   {
-    file_chunk_t *terminate_chunk = malloc(sizeof(file_chunk_t));
-    terminate_chunk->file_id = SIGNAL_TERMINATE;
-    insert_fifo(queue, terminate_chunk);
-  }
-
-  for (int worker_index = 0; worker_index < WORKERS_N; worker_index++)
-  {
-    pthread_join(workers[worker_index], NULL);
+    if (pthread_join(workers[worker_index], NULL))
+    {
+      printf("Thread join error\n");
+      exit(1);
+    }
   }
 
   for (int file_index = 0; file_index < files_n; file_index++)
@@ -183,9 +151,11 @@ int main(int argc, char **argv)
     printf("Number of words ending with consonants: %d\n", results[file_index].words_consonant_ending_number);
   }
 
-  clock_t end = clock();
-  double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
-  printf("Elapsed time = %.5f s\n", time_spent);
+  clock_gettime(CLOCK_MONOTONIC, &finish);
+
+  elapsed = (finish.tv_sec - start.tv_sec);
+  elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+  printf("Elapsed time = %.5f s\n", elapsed);
   free_shared_memory();
   return 0;
 }
