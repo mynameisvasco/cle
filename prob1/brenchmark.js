@@ -1,6 +1,8 @@
 const { execSync } = require("child_process");
 
-for (let i = 1; i <= 8; i++) {
+execSync(`gcc prob1.c utf8.c fifo.c -O3 -Wall `);
+
+for (let i = 1; i <= 20; i++) {
   let thread_times = [];
 
   for (let j = 0; j < 10; j++) {

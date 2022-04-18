@@ -10,21 +10,11 @@ void init_fifo(fifo_t *fifo)
   pthread_cond_init(&fifo->isNotFull, NULL);
 }
 
-int empty_fifo(fifo_t *fifo)
-{
-  return fifo->cnt == 0;
-}
-
-int full_fifo(fifo_t *fifo)
-{
-  return fifo->cnt == FIFO_SIZE;
-}
-
 void insert_fifo(fifo_t *fifo, file_chunk_t *chunk)
 {
   pthread_mutex_lock(&fifo->mutex);
 
-  while (full_fifo(fifo))
+  while (fifo->cnt == FIFO_SIZE)
   {
     pthread_cond_wait(&fifo->isNotFull, &fifo->mutex);
   }
@@ -33,7 +23,7 @@ void insert_fifo(fifo_t *fifo, file_chunk_t *chunk)
   fifo->array[idx] = chunk;
   fifo->inp = (fifo->inp + 1) % FIFO_SIZE;
   fifo->cnt++;
-  pthread_cond_broadcast(&fifo->isNotEmpty);
+  pthread_cond_signal(&fifo->isNotEmpty);
   pthread_mutex_unlock(&fifo->mutex);
 }
 
@@ -41,7 +31,7 @@ file_chunk_t *retrieve_fifo(fifo_t *fifo)
 {
   pthread_mutex_lock(&fifo->mutex);
 
-  while (empty_fifo(fifo))
+  while (fifo->cnt == 0)
   {
     pthread_cond_wait(&fifo->isNotEmpty, &fifo->mutex);
   }
@@ -50,7 +40,7 @@ file_chunk_t *retrieve_fifo(fifo_t *fifo)
   fifo->array[fifo->out] = NULL;
   fifo->out = (fifo->out + 1) % FIFO_SIZE;
   fifo->cnt--;
-  pthread_cond_broadcast(&fifo->isNotFull);
+  pthread_cond_signal(&fifo->isNotFull);
   pthread_mutex_unlock(&fifo->mutex);
   return result;
 }
