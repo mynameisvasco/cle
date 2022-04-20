@@ -3,7 +3,7 @@
 #include <string.h>
 #include "fifo.h"
 
-#define WORKERS_N 3
+#define WORKERS_N 7
 
 static fifo_t *queue;
 static double **results;
@@ -119,12 +119,15 @@ int main(int argc, char **argv)
     for (int file_index = 0; file_index < num_files; file_index++)
     {
         FILE *file = fopen(argv[file_index + 1], "rb");
+        clock_t begin_file = clock();
 
         if (file == NULL)
         {
             printf("File could not be read");
             exit(1);
         }
+
+        printf("\n\nProcessing file: %s\n", argv[file_index + 1]);
 
         int matrix_count, matrix_order;
         if (fread(&matrix_count, sizeof(int), 1, file) != 1)
@@ -160,13 +163,15 @@ int main(int argc, char **argv)
             insert_fifo(queue, data);
         }
         fclose(file);
-
-        for (int i = 0; i < WORKERS_N; i++)
-        {
-            matrix_t *data = malloc(sizeof(matrix_t));
-            data->matrix_id = -1;
-            insert_fifo(queue, data);
-        }
+        clock_t end_file = clock();
+        double time_spent = (double)(end_file - begin_file) / CLOCKS_PER_SEC;
+        printf("Elapsed time = %.5f s\n", time_spent);
+    }
+    for (int i = 0; i < WORKERS_N; i++)
+    {
+        matrix_t *data = malloc(sizeof(matrix_t));
+        data->matrix_id = -1;
+        insert_fifo(queue, data);
     }
 
     for (int worker_index = 0; worker_index < WORKERS_N; worker_index++)
@@ -176,6 +181,7 @@ int main(int argc, char **argv)
 
     for (int file_index = 0; file_index < num_files; file_index++)
     {
+        printf("\n\nProcessing file: %s\n", argv[file_index + 1]);
         printf("Number of matrices to be read: %d\n", matrices_size[file_index]);
         printf("Matrices order: %d\n\n", matrices_order[file_index]);
         for (int mat_id = 0; mat_id < matrices_size[file_index]; mat_id++)
