@@ -6,7 +6,7 @@
 void init_fifo(fifo_t *fifo, int size)
 {
   fifo->inp = fifo->out = fifo->cnt = 0;
-  fifo->array = (matrix_t *)(malloc(sizeof(matrix_t) * size));
+  fifo->array = malloc(sizeof(matrix_t) * size);
   fifo->max = size;
   pthread_mutex_init(&fifo->mutex, NULL);
   pthread_cond_init(&fifo->isNotEmpty, NULL);
@@ -23,7 +23,7 @@ int full_fifo(fifo_t *fifo)
   return fifo->cnt == fifo->max;
 }
 
-void insert_fifo(fifo_t *fifo, matrix_t mat)
+void insert_fifo(fifo_t *fifo, matrix_t *mat)
 {
   pthread_mutex_lock(&fifo->mutex);
 
@@ -41,7 +41,7 @@ void insert_fifo(fifo_t *fifo, matrix_t mat)
   pthread_mutex_unlock(&fifo->mutex);
 }
 
-matrix_t retrieve_fifo(fifo_t *fifo)
+matrix_t *retrieve_fifo(fifo_t *fifo)
 {
   pthread_mutex_lock(&fifo->mutex);
 
@@ -50,8 +50,8 @@ matrix_t retrieve_fifo(fifo_t *fifo)
     pthread_cond_wait(&fifo->isNotEmpty, &fifo->mutex);
   }
 
-  matrix_t result = fifo->array[fifo->out];
-  fifo->array[fifo->out] = *(matrix_t *)NULL;
+  matrix_t *result = (fifo->array)[fifo->out];
+  fifo->array[fifo->out] = NULL;
   fifo->out = (fifo->out + 1) % fifo->max;
   fifo->cnt--;
   pthread_cond_broadcast(&fifo->isNotFull);

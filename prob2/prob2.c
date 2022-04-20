@@ -3,18 +3,16 @@
 #include <string.h>
 #include "fifo.h"
 
-#define WORKERS_N 4
+#define WORKERS_N 3
 
 static fifo_t *queue;
 static double **results;
-static pthread_mutex_t **results_mutex;
 static pthread_t workers[WORKERS_N];
 
 void init_shared_memory(int num_files)
 {
     queue = malloc(sizeof(fifo_t));
     results = malloc(sizeof(double *) * num_files);
-    results_mutex = malloc(sizeof(pthread_mutex_t *) * num_files);
 
     init_fifo(queue, 256);
 }
@@ -22,7 +20,6 @@ void init_shared_memory(int num_files)
 void init_individual_memory(unsigned int file, unsigned int matrix_count)
 {
     results[file] = malloc(sizeof(double) * matrix_count);
-    results_mutex[file] = malloc(sizeof(pthread_mutex_t) * matrix_count);
 }
 
 void free_memory(unsigned int num_files)
@@ -30,12 +27,10 @@ void free_memory(unsigned int num_files)
     for (int i = 0; i < num_files; i++)
     {
         free(results[i]);
-        free(results_mutex[i]);
     }
     free(queue->array);
     free(queue);
     free(results);
-    free(results_mutex);
 }
 
 // Swaps the values of columns X and Y
@@ -59,22 +54,27 @@ void *process_matrix(void *argp)
 {
     while (1)
     {
-        matrix_t matrix = retrieve_fifo(queue);
+        matrix_t *matrix = retrieve_fifo(queue);
 
-        int width = matrix.order;
-        int height = matrix.order;
+        if (matrix->matrix_id == -1)
+        {
+            free(matrix);
+            break;
+        }
+
+        int width = matrix->order;
         int signal_reversion = 0;
         double determinant = 1;
-        for (int i = 0; i < height; i++)
+        for (int i = 0; i < width; i++)
         {
-            if (matrix.values[width * i + i] == 0)
+            if (matrix->values[width * i + i] == 0)
             {
 
                 for (int j = i + 1; j < width; j++)
                 {
-                    if (matrix.values[width * i + j] != 0)
+                    if (matrix->values[width * i + j] != 0)
                     {
-                        swap_columns(matrix.values, &i, &j, width);
+                        swap_columns(matrix->values, &i, &j, width);
                         signal_reversion = !signal_reversion;
                         break;
                     }
@@ -84,16 +84,16 @@ void *process_matrix(void *argp)
             {
                 for (int k = i + 1; k < width; k++)
                 {
-                    transformation(&matrix.values[width * k + j], matrix.values[width * k + i], matrix.values[width * i + i], matrix.values[width * i + j]);
+                    transformation(&matrix->values[width * k + j], matrix->values[width * k + i], matrix->values[width * i + i], matrix->values[width * i + j]);
                 }
             }
-            if (matrix.values[width * i + i] == 0)
+            if (matrix->values[width * i + i] == 0)
                 return 0;
-            determinant *= matrix.values[width * i + i];
+            determinant *= matrix->values[width * i + i];
         }
-        pthread_mutex_lock(&(*results_mutex[matrix.file_id]));
-        results[matrix.file_id][matrix.matrix_id] = determinant;
-        pthread_mutex_unlock(&(*results_mutex[matrix.file_id]));
+        results[matrix->file_id][matrix->matrix_id] = determinant;
+        free(matrix->values);
+        free(matrix);
     }
 }
 
@@ -139,32 +139,34 @@ int main(int argc, char **argv)
         }
 
         init_individual_memory(file_index, matrix_count);
+
         matrices_size[file_index] = matrix_count;
         matrices_order[file_index] = matrix_order;
 
-        double *matrix = malloc(sizeof(double) * matrix_order * matrix_order);
-
-        matrix_t data;
-        int cont = 1;
+        int cont = 0;
+        int num_read = 0;
         while (matrix_count-- > 0)
         {
-            for (int i = 0; i < matrix_order; i++)
+            matrix_t *data = malloc(sizeof(matrix_t));
+            data->values = malloc(sizeof(double) * matrix_order * matrix_order);
+            if ((num_read = fread(data->values, sizeof(double), matrix_order * matrix_order, file)) != (matrix_order * matrix_order))
             {
-                if (fread(matrix, sizeof(double), matrix_order * matrix_order, file) != (matrix_order * matrix_order))
-                {
-                    printf("Error reading values from matrix!");
-                    exit(2);
-                }
+                printf("Error reading values from matrix!\n");
+                exit(2);
             }
-            data.file_id = file_index;
-            data.matrix_id = cont++;
-            data.values = matrix;
-            data.order = matrix_order;
+            data->file_id = file_index;
+            data->matrix_id = cont++;
+            data->order = matrix_order;
             insert_fifo(queue, data);
-            free(matrix);
         }
-
         fclose(file);
+
+        for (int i = 0; i < WORKERS_N; i++)
+        {
+            matrix_t *data = malloc(sizeof(matrix_t));
+            data->matrix_id = -1;
+            insert_fifo(queue, data);
+        }
     }
 
     for (int worker_index = 0; worker_index < WORKERS_N; worker_index++)

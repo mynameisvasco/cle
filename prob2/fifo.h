@@ -11,7 +11,7 @@ typedef struct matrix_t
 
 typedef struct fifo_t
 {
-  matrix_t *array;
+  matrix_t **array;
   unsigned int inp; // head
   unsigned int out; // tail
   unsigned int cnt; // size
@@ -24,5 +24,5 @@ typedef struct fifo_t
 void init_fifo(fifo_t *fifo, int size);
 int empty_fifo(fifo_t *fifo);
 int full_fifo(fifo_t *fifo);
-void insert_fifo(fifo_t *fifo, matrix_t mat);
-matrix_t retrieve_fifo(fifo_t *fifo);
+void insert_fifo(fifo_t *fifo, matrix_t *mat);
+matrix_t *retrieve_fifo(fifo_t *fifo);
