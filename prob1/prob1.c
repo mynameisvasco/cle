@@ -20,14 +20,12 @@ static int workers_n = 0;
 static file_result_t *results;
 static pthread_mutex_t *results_mutex;
 static pthread_t *workers;
-static pthread_t *producers;
 static fifo_t fifo;
 static char *files_paths[10];
 
 void init_memory()
 {
   workers = malloc(sizeof(pthread_t) * workers_n);
-  producers = malloc(sizeof(pthread_t) * files_n);
   results = malloc(sizeof(file_result_t) * files_n);
   results_mutex = malloc(sizeof(pthread_mutex_t) * files_n);
 
@@ -47,54 +45,6 @@ void free_shared_memory()
   free(workers);
   free(results);
   free(results_mutex);
-}
-
-void *producer_lifecycle(void *argp)
-{
-  int file_index = *(int *)argp;
-  char *file_path = files_paths[file_index];
-  FILE *file = fopen(file_path, "rb");
-  unsigned int c;
-
-  do
-  {
-    file_chunk_t *chunk = malloc(sizeof(file_chunk_t));
-    unsigned int last_separator_index = 0;
-    long backward_bytes = 0;
-
-    for (unsigned int c_index = 0; c_index < CHUNK_SIZE; c_index++)
-    {
-      c = read_u8char(file);
-
-      if (is_separator(c))
-      {
-        last_separator_index = c_index;
-      }
-      else if (c == 0)
-      {
-        break;
-      }
-
-      chunk->file_id = file_index;
-      chunk->buffer[c_index] = c;
-    }
-
-    for (unsigned int c_index = last_separator_index + 1; c_index < CHUNK_SIZE; c_index++)
-    {
-      if (chunk->buffer[c_index] != 0)
-      {
-        backward_bytes += get_needed_bytes(chunk->buffer[c_index]);
-        chunk->buffer[c_index] = 0;
-      }
-    }
-
-    fseek(file, -backward_bytes, SEEK_CUR);
-    insert_fifo(&fifo, chunk);
-  } while (c != 0);
-
-  fclose(file);
-  free(argp);
-  return NULL;
 }
 
 void *worker_lifecycle(void *argp)
@@ -186,14 +136,47 @@ int main(int argc, char **argv)
 
   for (int file_index = 0; file_index < files_n; file_index++)
   {
-    int *file_id = malloc(sizeof(int));
-    *file_id = file_index;
-    pthread_create(&producers[file_index], NULL, producer_lifecycle, file_id);
-  }
+    char *file_path = files_paths[file_index];
+    FILE *file = fopen(file_path, "rb");
+    unsigned int c;
 
-  for (int file_index = 0; file_index < files_n; file_index++)
-  {
-    pthread_join(producers[file_index], NULL);
+    do
+    {
+      file_chunk_t *chunk = malloc(sizeof(file_chunk_t));
+      unsigned int last_separator_index = 0;
+      long backward_bytes = 0;
+
+      for (unsigned int c_index = 0; c_index < CHUNK_SIZE; c_index++)
+      {
+        c = read_u8char(file);
+
+        if (is_separator(c))
+        {
+          last_separator_index = c_index;
+        }
+        else if (c == 0)
+        {
+          break;
+        }
+
+        chunk->file_id = file_index;
+        chunk->buffer[c_index] = c;
+      }
+
+      for (unsigned int c_index = last_separator_index + 1; c_index < CHUNK_SIZE; c_index++)
+      {
+        if (chunk->buffer[c_index] != 0)
+        {
+          backward_bytes += get_needed_bytes(chunk->buffer[c_index]);
+          chunk->buffer[c_index] = 0;
+        }
+      }
+
+      fseek(file, -backward_bytes, SEEK_CUR);
+      insert_fifo(&fifo, chunk);
+    } while (c != 0);
+
+    fclose(file);
   }
 
   for (int worker_index = 0; worker_index < workers_n; worker_index++)

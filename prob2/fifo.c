@@ -31,7 +31,10 @@ void insert_fifo(fifo_t *fifo, matrix_t *mat)
 
   while (full_fifo(fifo))
   {
-    pthread_cond_wait(&fifo->isNotFull, &fifo->mutex);
+    if (pthread_cond_wait(&fifo->isNotFull, &fifo->mutex))
+    {
+      perror("Failed to wait is not full condition");
+    }
   }
 
   unsigned int idx = fifo->inp;
@@ -62,7 +65,11 @@ matrix_t *retrieve_fifo(fifo_t *fifo)
 
   while (empty_fifo(fifo))
   {
-    pthread_cond_wait(&fifo->isNotEmpty, &fifo->mutex);
+    if (pthread_cond_wait(&fifo->isNotEmpty, &fifo->mutex))
+    {
+      perror("Failed to wait is not empty condition");
+      pthread_exit(NULL);
+    }
   }
 
   matrix_t *result = fifo->array[fifo->out];

@@ -115,19 +115,19 @@ int main(int argc, char **argv)
 
         if (file == NULL)
         {
-            printf("File could not be read");
+            perror("File could not be read");
             exit(1);
         }
 
         int matrix_count, matrix_order;
         if (fread(&matrix_count, sizeof(int), 1, file) != 1)
         {
-            printf("Error reading number of matrices!");
+            perror("Error reading number of matrices!");
             exit(1);
         }
         if (fread(&matrix_order, sizeof(int), 1, file) != 1)
         {
-            printf("Error reading matrices order!");
+            perror("Error reading matrices order!");
             exit(1);
         }
 
@@ -143,7 +143,7 @@ int main(int argc, char **argv)
 
             if ((num_read = fread(matrix->values, sizeof(double), matrix_order * matrix_order, file)) != (matrix_order * matrix_order))
             {
-                printf("Error reading values from matrix!\n");
+                perror("Error reading values from matrix!\n");
                 exit(2);
             }
 

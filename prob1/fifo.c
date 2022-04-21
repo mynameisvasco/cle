@@ -26,12 +26,15 @@ void insert_fifo(fifo_t *fifo, file_chunk_t *chunk)
   if (pthread_mutex_lock(&fifo->mutex))
   {
     perror("Failed to enter monitor mode");
-    pthread_exit(-1);
+    pthread_exit(NULL);
   }
 
   while (full_fifo(fifo))
   {
-    pthread_cond_wait(&fifo->isNotFull, &fifo->mutex);
+    if (pthread_cond_wait(&fifo->isNotFull, &fifo->mutex))
+    {
+      perror("Failed to wait is not full condition");
+    }
   }
 
   unsigned int idx = fifo->inp;
@@ -62,7 +65,10 @@ file_chunk_t *retrieve_fifo(fifo_t *fifo)
 
   while (empty_fifo(fifo))
   {
-    pthread_cond_wait(&fifo->isNotEmpty, &fifo->mutex);
+    if (pthread_cond_wait(&fifo->isNotEmpty, &fifo->mutex))
+    {
+      perror("Failed to wait is not empty condition");
+    }
   }
 
   file_chunk_t *result = fifo->array[fifo->out];
