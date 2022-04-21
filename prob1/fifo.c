@@ -1,5 +1,6 @@
 #include <pthread.h>
 #include <string.h>
+#include <stdio.h>
 #include "fifo.h"
 
 void init_fifo(fifo_t *fifo)
@@ -22,7 +23,11 @@ int full_fifo(fifo_t *fifo)
 
 void insert_fifo(fifo_t *fifo, file_chunk_t *chunk)
 {
-  pthread_mutex_lock(&fifo->mutex);
+  if (pthread_mutex_lock(&fifo->mutex))
+  {
+    perror("Failed to enter monitor mode");
+    pthread_exit(-1);
+  }
 
   while (full_fifo(fifo))
   {
@@ -30,17 +35,30 @@ void insert_fifo(fifo_t *fifo, file_chunk_t *chunk)
   }
 
   unsigned int idx = fifo->inp;
-  unsigned int prev = (idx + FIFO_SIZE - 1) % FIFO_SIZE;
   fifo->array[idx] = chunk;
   fifo->inp = (fifo->inp + 1) % FIFO_SIZE;
   fifo->cnt++;
-  pthread_cond_broadcast(&fifo->isNotEmpty);
-  pthread_mutex_unlock(&fifo->mutex);
+
+  if (pthread_cond_broadcast(&fifo->isNotEmpty))
+  {
+    perror("Failed to broadcast is not empty condition");
+    pthread_exit(NULL);
+  }
+
+  if (pthread_mutex_unlock(&fifo->mutex))
+  {
+    perror("Failed to exit monitor mode");
+    pthread_exit(NULL);
+  }
 }
 
 file_chunk_t *retrieve_fifo(fifo_t *fifo)
 {
-  pthread_mutex_lock(&fifo->mutex);
+  if (pthread_mutex_lock(&fifo->mutex))
+  {
+    perror("Failed to enter monitor mode");
+    pthread_exit(NULL);
+  }
 
   while (empty_fifo(fifo))
   {
@@ -51,7 +69,18 @@ file_chunk_t *retrieve_fifo(fifo_t *fifo)
   fifo->array[fifo->out] = NULL;
   fifo->out = (fifo->out + 1) % FIFO_SIZE;
   fifo->cnt--;
-  pthread_cond_broadcast(&fifo->isNotFull);
-  pthread_mutex_unlock(&fifo->mutex);
+
+  if (pthread_cond_broadcast(&fifo->isNotFull))
+  {
+    perror("Failed to broadcast is not full condition");
+    pthread_exit(NULL);
+  }
+
+  if (pthread_mutex_unlock(&fifo->mutex))
+  {
+    perror("Failed to exit monitor mode");
+    pthread_exit(NULL);
+  }
+
   return result;
 }

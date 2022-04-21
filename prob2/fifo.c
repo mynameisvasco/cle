@@ -1,13 +1,11 @@
 #include <pthread.h>
 #include <string.h>
-#include <stdlib.h>
+#include <stdio.h>
 #include "fifo.h"
 
-void init_fifo(fifo_t *fifo, int size)
+void init_fifo(fifo_t *fifo)
 {
   fifo->inp = fifo->out = fifo->cnt = 0;
-  fifo->array = malloc(sizeof(matrix_t) * size);
-  fifo->max = size;
   pthread_mutex_init(&fifo->mutex, NULL);
   pthread_cond_init(&fifo->isNotEmpty, NULL);
   pthread_cond_init(&fifo->isNotFull, NULL);
@@ -20,12 +18,16 @@ int empty_fifo(fifo_t *fifo)
 
 int full_fifo(fifo_t *fifo)
 {
-  return fifo->cnt == fifo->max;
+  return fifo->cnt == FIFO_SIZE;
 }
 
 void insert_fifo(fifo_t *fifo, matrix_t *mat)
 {
-  pthread_mutex_lock(&fifo->mutex);
+  if (pthread_mutex_lock(&fifo->mutex))
+  {
+    perror("Failed to enter monitor mode");
+    pthread_exit(NULL);
+  }
 
   while (full_fifo(fifo))
   {
@@ -33,28 +35,52 @@ void insert_fifo(fifo_t *fifo, matrix_t *mat)
   }
 
   unsigned int idx = fifo->inp;
-  unsigned int prev = (idx + fifo->max - 1) % fifo->max;
   fifo->array[idx] = mat;
-  fifo->inp = (fifo->inp + 1) % fifo->max;
+  fifo->inp = (fifo->inp + 1) % FIFO_SIZE;
   fifo->cnt++;
-  pthread_cond_broadcast(&fifo->isNotEmpty);
-  pthread_mutex_unlock(&fifo->mutex);
+
+  if (pthread_cond_broadcast(&fifo->isNotEmpty))
+  {
+    perror("Failed to broadcast is not empty condition");
+    pthread_exit(NULL);
+  }
+
+  if (pthread_mutex_unlock(&fifo->mutex))
+  {
+    perror("Failed to exit monitor mode");
+    pthread_exit(NULL);
+  }
 }
 
 matrix_t *retrieve_fifo(fifo_t *fifo)
 {
-  pthread_mutex_lock(&fifo->mutex);
+  if (pthread_mutex_lock(&fifo->mutex))
+  {
+    perror("Failed to enter monitor mode");
+    pthread_exit(NULL);
+  }
 
   while (empty_fifo(fifo))
   {
     pthread_cond_wait(&fifo->isNotEmpty, &fifo->mutex);
   }
 
-  matrix_t *result = (fifo->array)[fifo->out];
+  matrix_t *result = fifo->array[fifo->out];
   fifo->array[fifo->out] = NULL;
-  fifo->out = (fifo->out + 1) % fifo->max;
+  fifo->out = (fifo->out + 1) % FIFO_SIZE;
   fifo->cnt--;
-  pthread_cond_broadcast(&fifo->isNotFull);
-  pthread_mutex_unlock(&fifo->mutex);
+
+  if (pthread_cond_broadcast(&fifo->isNotFull))
+  {
+    perror("Failed to broadcast is not full condition");
+    pthread_exit(NULL);
+  }
+
+  if (pthread_mutex_unlock(&fifo->mutex))
+  {
+    perror("Failed to exit monitor mode");
+    pthread_exit(NULL);
+  }
+
   return result;
 }

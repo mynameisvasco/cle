@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <pthread.h>
+#include "fifo.h"
 #include "utf8.h"
 
 struct timespec start, finish;
@@ -15,27 +15,31 @@ typedef struct file_result_t
   unsigned int words_consonant_ending_number;
 } file_result_t;
 
-static FILE *files[10];
-static int current_file = 0;
-static int workers_n = 4;
 static int files_n = 0;
+static int workers_n = 0;
 static file_result_t *results;
 static pthread_mutex_t *results_mutex;
 static pthread_t *workers;
+static pthread_t *producers;
+static fifo_t fifo;
+static char *files_paths[10];
 
-void init_shared_memory(unsigned int files_n)
+void init_memory()
 {
   workers = malloc(sizeof(pthread_t) * workers_n);
+  producers = malloc(sizeof(pthread_t) * files_n);
   results = malloc(sizeof(file_result_t) * files_n);
   results_mutex = malloc(sizeof(pthread_mutex_t) * files_n);
 
-  for (unsigned int i = 0; i < files_n; i++)
+  for (int i = 0; i < files_n; i++)
   {
     results[i].words_number = 0;
     results[i].words_vowel_start_number = 0;
     results[i].words_consonant_ending_number = 0;
     pthread_mutex_init(&results_mutex[i], NULL);
   }
+
+  init_fifo(&fifo);
 }
 
 void free_shared_memory()
@@ -45,13 +49,62 @@ void free_shared_memory()
   free(results_mutex);
 }
 
+void *producer_lifecycle(void *argp)
+{
+  int file_index = *(int *)argp;
+  char *file_path = files_paths[file_index];
+  FILE *file = fopen(file_path, "rb");
+  unsigned int c;
+
+  do
+  {
+    file_chunk_t *chunk = malloc(sizeof(file_chunk_t));
+    unsigned int last_separator_index = 0;
+    long backward_bytes = 0;
+
+    for (unsigned int c_index = 0; c_index < CHUNK_SIZE; c_index++)
+    {
+      c = read_u8char(file);
+
+      if (is_separator(c))
+      {
+        last_separator_index = c_index;
+      }
+      else if (c == 0)
+      {
+        break;
+      }
+
+      chunk->file_id = file_index;
+      chunk->buffer[c_index] = c;
+    }
+
+    for (unsigned int c_index = last_separator_index + 1; c_index < CHUNK_SIZE; c_index++)
+    {
+      if (chunk->buffer[c_index] != 0)
+      {
+        backward_bytes += get_needed_bytes(chunk->buffer[c_index]);
+        chunk->buffer[c_index] = 0;
+      }
+    }
+
+    fseek(file, -backward_bytes, SEEK_CUR);
+    insert_fifo(&fifo, chunk);
+  } while (c != 0);
+
+  fclose(file);
+  free(argp);
+  return NULL;
+}
+
 void *worker_lifecycle(void *argp)
 {
   while (1)
   {
-    file_chunk_t *chunk = get_file_chunk(files, &current_file, files_n);
+    int worker_id = *(int *)argp;
+    file_chunk_t *chunk = retrieve_fifo(&fifo);
 
-    if (chunk == NULL)
+    if (chunk->file_id == SIGNAL_TERMINATE)
       break;
 
     int is_in_word = 0;
@@ -70,7 +123,9 @@ void *worker_lifecycle(void *argp)
       if (is_in_word && is_separator(c))
       {
         if (is_consonant(last_c))
+        {
           words_consonant_ending_number++;
+        }
 
         is_in_word = 0;
       }
@@ -87,7 +142,9 @@ void *worker_lifecycle(void *argp)
       }
 
       if (is_separator(c) || is_vowel(c) || is_number(c) || is_consonant(c) || c == '_' || c == '\'')
+      {
         last_c = c;
+      }
     }
 
     pthread_mutex_lock(&results_mutex[chunk->file_id]);
@@ -98,49 +155,57 @@ void *worker_lifecycle(void *argp)
     free(chunk);
   }
 
+  free(argp);
   return NULL;
 }
 
 int main(int argc, char **argv)
 {
+  srandom(time(NULL) * getpid());
   clock_gettime(CLOCK_MONOTONIC, &start);
   double elapsed;
+  int input = 0;
 
-  if (argc < 2)
+  while (input != -1)
   {
-    printf("Wrong number of arguments\n, Usage: ./a.out test1.txt test2.txt ...\n");
-    exit(-1);
-  }
-
-  int c = 0;
-
-  while (c != -1)
-  {
-    c = getopt(argc, argv, "t:i:");
-    if (c == 't')
+    input = getopt(argc, argv, "t:i:");
+    if (input == 't')
       workers_n = atoi(optarg);
-    else if (c == 'i')
-      files[files_n++] = fopen(optarg, "rb");
+    else if (input == 'i')
+      files_paths[files_n++] = optarg;
   }
 
-  init_shared_memory(files_n);
+  init_memory();
 
   for (int worker_index = 0; worker_index < workers_n; worker_index++)
   {
-    if (pthread_create(&workers[worker_index], NULL, worker_lifecycle, NULL))
-    {
-      printf("Thread creation error\n");
-      exit(1);
-    }
+    int *worker_id = malloc(sizeof(int));
+    *worker_id = worker_index;
+    pthread_create(&workers[worker_index], NULL, worker_lifecycle, worker_id);
+  }
+
+  for (int file_index = 0; file_index < files_n; file_index++)
+  {
+    int *file_id = malloc(sizeof(int));
+    *file_id = file_index;
+    pthread_create(&producers[file_index], NULL, producer_lifecycle, file_id);
+  }
+
+  for (int file_index = 0; file_index < files_n; file_index++)
+  {
+    pthread_join(producers[file_index], NULL);
   }
 
   for (int worker_index = 0; worker_index < workers_n; worker_index++)
   {
-    if (pthread_join(workers[worker_index], NULL))
-    {
-      printf("Thread join error\n");
-      exit(1);
-    }
+    file_chunk_t *terminate_chunk = malloc(sizeof(file_chunk_t));
+    terminate_chunk->file_id = SIGNAL_TERMINATE;
+    insert_fifo(&fifo, terminate_chunk);
+  }
+
+  for (int worker_index = 0; worker_index < workers_n; worker_index++)
+  {
+    pthread_join(workers[worker_index], NULL);
   }
 
   for (int file_index = 0; file_index < files_n; file_index++)
@@ -152,7 +217,6 @@ int main(int argc, char **argv)
   }
 
   clock_gettime(CLOCK_MONOTONIC, &finish);
-
   elapsed = (finish.tv_sec - start.tv_sec);
   elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
   printf("Elapsed time = %.5f s\n", elapsed);

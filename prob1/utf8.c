@@ -1,8 +1,4 @@
-#include <stdlib.h>
-#include <pthread.h>
 #include "utf8.h"
-
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int is_vowel(unsigned int c)
 {
@@ -108,54 +104,6 @@ int read_u8char(FILE *file)
   }
 
   return c;
-}
-
-file_chunk_t *get_file_chunk(FILE **files, int *current_file, int files_n)
-{
-  pthread_mutex_lock(&mutex);
-
-  if (*current_file >= files_n)
-  {
-    pthread_mutex_unlock(&mutex);
-    return (void *)NULL;
-  }
-
-  FILE *file = files[*current_file];
-  file_chunk_t *chunk = malloc(sizeof(file_chunk_t));
-  unsigned int c;
-  unsigned int last_separator_index = 0;
-  long backward_bytes = 0;
-
-  for (unsigned int c_index = 0; c_index < CHUNK_SIZE; c_index++)
-  {
-    c = read_u8char(file);
-
-    if (is_separator(c))
-    {
-      last_separator_index = c_index;
-    }
-    else if (c == 0)
-    {
-      *current_file += 1;
-      break;
-    }
-
-    chunk->file_id = *current_file;
-    chunk->buffer[c_index] = c;
-  }
-
-  for (unsigned int c_index = last_separator_index + 1; c_index < CHUNK_SIZE; c_index++)
-  {
-    if (chunk->buffer[c_index] != 0)
-    {
-      backward_bytes += get_needed_bytes(chunk->buffer[c_index]);
-      chunk->buffer[c_index] = 0;
-    }
-  }
-
-  fseek(file, -backward_bytes, SEEK_CUR);
-  pthread_mutex_unlock(&mutex);
-  return chunk;
 }
 
 long get_needed_bytes(unsigned int n)
