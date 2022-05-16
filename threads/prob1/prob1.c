@@ -51,7 +51,6 @@ void *worker_lifecycle(void *argp)
 {
   while (1)
   {
-    int worker_id = *(int *)argp;
     file_chunk_t *chunk = retrieve_fifo(&fifo);
 
     if (chunk->file_id == SIGNAL_TERMINATE)
@@ -105,14 +104,12 @@ void *worker_lifecycle(void *argp)
     free(chunk);
   }
 
-  free(argp);
   return NULL;
 }
 
 int main(int argc, char **argv)
 {
-  srandom(time(NULL) * getpid());
-  clock_gettime(CLOCK_MONOTONIC, &start);
+  clock_gettime(CLOCK_MONOTONIC_RAW, &start);
   double elapsed;
   int input = 0;
 
@@ -129,9 +126,7 @@ int main(int argc, char **argv)
 
   for (int worker_index = 0; worker_index < workers_n; worker_index++)
   {
-    int *worker_id = malloc(sizeof(int));
-    *worker_id = worker_index;
-    pthread_create(&workers[worker_index], NULL, worker_lifecycle, worker_id);
+    pthread_create(&workers[worker_index], NULL, worker_lifecycle, NULL);
   }
 
   for (int file_index = 0; file_index < files_n; file_index++)
@@ -199,7 +194,7 @@ int main(int argc, char **argv)
     printf("Number of words ending with consonants: %d\n", results[file_index].words_consonant_ending_number);
   }
 
-  clock_gettime(CLOCK_MONOTONIC, &finish);
+  clock_gettime(CLOCK_MONOTONIC_RAW, &finish);
   elapsed = (finish.tv_sec - start.tv_sec);
   elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
   printf("Elapsed time = %.5f s\n", elapsed);

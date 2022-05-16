@@ -82,6 +82,8 @@ void *worker_lifecycle(void *argp)
         free(matrix->values);
         free(matrix);
     }
+
+    return NULL;
 }
 
 int main(int argc, char **argv)
