@@ -33,12 +33,7 @@ int main(int argc, char *argv[])
     {
         clock_gettime(CLOCK_MONOTONIC_RAW, &start);
         double elapsed;
-        pthread_t populator;
-        int *_workers_size = malloc(sizeof(int));
-        *_workers_size = workers_size;
-        pthread_create(&populator, NULL, populator_lifecycle, _workers_size);
         dispatcher(argc, argv, workers_size);
-        pthread_join(populator, NULL);
         clock_gettime(CLOCK_MONOTONIC_RAW, &finish);
         elapsed = (finish.tv_sec - start.tv_sec);
         elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
@@ -58,12 +53,13 @@ void *populator_lifecycle(void *argp)
     MPI_Datatype matrix_type = create_matrix_type();
     MPI_Datatype file_results_type = create_result_type();
 
-    int workers_size = *(int *)argp;
+    int workers_size = ((int *)argp)[0];
+    int files_n = ((int *)argp)[1];
     int worker_index = 0;
     int finished_workers = 0;
     matrix_t *matrices[workers_size];
     file_result_t result[workers_size];
-    double determinants[4][256];
+    double determinants[files_n][256];
     int recv_flags[workers_size];
     int send_flags[workers_size];
     int recv_finished[workers_size];
@@ -77,6 +73,14 @@ void *populator_lifecycle(void *argp)
         send_flags[i] = 1;
         recv_finished[i] = 0;
         send_finished[i] = 0;
+    }
+
+    for (int i = 0; i < files_n; i++)
+    {
+        for (int j = 0; j < 256; j++)
+        {
+            determinants[i][j] = 0;
+        }
     }
 
     while (1)
@@ -115,13 +119,19 @@ void *populator_lifecycle(void *argp)
         }
 
         worker_index = (worker_index + 1) % workers_size;
+
         if (finished_workers == workers_size)
         {
-            for (int file_index = 0; file_index < 4; file_index++)
+            for (int file_index = 0; file_index < files_n; file_index++)
             {
                 printf("\nFile: %1d\n\n", file_index);
-                for (int matrix_index = 0; matrix_index < 128; matrix_index++)
+
+                for (int matrix_index = 0; matrix_index < 256; matrix_index++)
                 {
+                    if (determinants[file_index][matrix_index] == 0)
+                        break;
+
+                    printf("Processing matrix %d\n", matrix_index + 1);
                     printf("Determinant is %.3e\n", determinants[file_index][matrix_index]);
                 }
             }
@@ -139,6 +149,7 @@ void dispatcher(int argc, char *argv[], int workers_size)
     int input = 0;
     int files_n = 0;
     char *files_paths[10];
+    pthread_t populator;
 
     while (input != -1)
     {
@@ -152,6 +163,11 @@ void dispatcher(int argc, char *argv[], int workers_size)
         printf("This application is meant to be run with at least 1 file.\n");
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
+
+    int *populator_args = malloc(sizeof(int) * 2);
+    populator_args[0] = workers_size;
+    populator_args[1] = files_n;
+    pthread_create(&populator, NULL, populator_lifecycle, populator_args);
 
     for (int file_index = 0; file_index < files_n; file_index++)
     {
@@ -201,6 +217,8 @@ void dispatcher(int argc, char *argv[], int workers_size)
         data->file_id = -1;
         insert_fifo(&fifo, data);
     }
+
+    pthread_join(populator, NULL);
 }
 
 void worker(int rank)
