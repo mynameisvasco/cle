@@ -8,7 +8,7 @@ typedef struct matrix_t
 {
   int file_id;
   int matrix_id;
-  double *values;
+  double values[256 * 256];
   int order;
 } matrix_t;
 

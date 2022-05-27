@@ -4,7 +4,7 @@
 MPI_Datatype create_matrix_type()
 {
   MPI_Datatype matrix_type;
-  int lengths[4] = {1, 1, 32 * 32, 1};
+  int lengths[4] = {1, 1, 256 * 256, 1};
   MPI_Aint displacements[4];
   struct matrix_t dummy;
   MPI_Aint base_address;
@@ -17,7 +17,6 @@ MPI_Datatype create_matrix_type()
   displacements[1] = MPI_Aint_diff(displacements[1], base_address);
   displacements[2] = MPI_Aint_diff(displacements[2], base_address);
   displacements[3] = MPI_Aint_diff(displacements[3], base_address);
-
   MPI_Datatype types[4] = {MPI_INT, MPI_INT, MPI_DOUBLE, MPI_INT};
   MPI_Type_create_struct(4, lengths, displacements, types, &matrix_type);
   MPI_Type_commit(&matrix_type);

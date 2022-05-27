@@ -90,9 +90,7 @@ void *populator_lifecycle(void *argp)
                 send_finished[worker_index] = 1;
             }
 
-            printf("Request Processing = %d\n", matrices[worker_index]->matrix_id);
             MPI_Isend(matrices[worker_index], 1, matrix_type, worker_index + 1, 0, MPI_COMM_WORLD, &send_requests[worker_index]);
-            printf("Reply Processing = %d\n", matrices[worker_index]->matrix_id);
         }
 
         if ((recv_flags[worker_index]) && !recv_finished[worker_index])
@@ -117,7 +115,6 @@ void *populator_lifecycle(void *argp)
         }
 
         worker_index = (worker_index + 1) % workers_size;
-
         if (finished_workers == workers_size)
         {
             for (int file_index = 0; file_index < 4; file_index++)
@@ -142,6 +139,7 @@ void dispatcher(int argc, char *argv[], int workers_size)
     int input = 0;
     int files_n = 0;
     char *files_paths[10];
+
     while (input != -1)
     {
         input = getopt(argc, argv, "t:i:");
@@ -181,7 +179,6 @@ void dispatcher(int argc, char *argv[], int workers_size)
         {
             int num_read = 0;
             matrix_t *matrix = malloc(sizeof(matrix_t));
-            matrix->values = malloc(sizeof(double) * matrix_order * matrix_order);
 
             if ((num_read = fread(matrix->values, sizeof(double), matrix_order * matrix_order, file)) != (matrix_order * matrix_order))
             {
@@ -192,9 +189,7 @@ void dispatcher(int argc, char *argv[], int workers_size)
             matrix->file_id = file_index;
             matrix->matrix_id = matrix_index;
             matrix->order = matrix_order;
-            printf("Request FIFO = %d\n", matrix_index);
             insert_fifo(&fifo, matrix);
-            printf("Reply FIFO = %d\n", matrix_index);
         }
 
         fclose(file);
@@ -203,7 +198,7 @@ void dispatcher(int argc, char *argv[], int workers_size)
     for (int i = 0; i < workers_size; i++)
     {
         matrix_t *data = malloc(sizeof(matrix_t));
-        data->matrix_id = -1;
+        data->file_id = -1;
         insert_fifo(&fifo, data);
     }
 }
@@ -212,17 +207,15 @@ void worker(int rank)
 {
     MPI_Datatype matrix_type = create_matrix_type();
     MPI_Datatype file_results_type = create_result_type();
-    printf("Process with rank %d started\n", rank);
+
     while (1)
     {
         matrix_t *matrix = malloc(sizeof(matrix_t));
         MPI_Recv(matrix, 1, matrix_type, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-        printf("Arrived = %d\n", matrix->matrix_id);
-        if (matrix->matrix_id == -1)
+        if (matrix->file_id == -1)
         {
             matrix->file_id = -1;
-            matrix->matrix_id = -1;
             MPI_Send(matrix, 1, file_results_type, 0, 0, MPI_COMM_WORLD);
             break;
         }
@@ -265,10 +258,7 @@ void worker(int rank)
         results->file_id = matrix->file_id;
         results->matrix_id = matrix->matrix_id;
         results->determinant = determinant;
-        printf("Request Storage = %.3f\n", determinant);
         MPI_Send(results, 1, file_results_type, 0, 0, MPI_COMM_WORLD);
-        printf("Reply Storage = %.3f\n", determinant);
-        free(matrix->values);
         free(matrix);
     }
 }
