@@ -33,12 +33,8 @@ int main(int argc, char *argv[])
   {
     clock_gettime(CLOCK_MONOTONIC_RAW, &start);
     double elapsed;
-    pthread_t populator;
-    int *_workers_size = malloc(sizeof(int));
-    *_workers_size = workers_size;
-    pthread_create(&populator, NULL, populator_lifecycle, _workers_size);
+
     dispatcher(argc, argv, workers_size);
-    pthread_join(populator, NULL);
     clock_gettime(CLOCK_MONOTONIC_RAW, &finish);
     elapsed = (finish.tv_sec - start.tv_sec);
     elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
@@ -59,7 +55,8 @@ void *populator_lifecycle(void *argp)
   MPI_Datatype file_chunk_type = MPI_CREATE_FILE_CHUNK_TYPE();
   MPI_Datatype file_results_type = MPI_CREATE_FILE_RESULTS_TYPE();
 
-  int workers_size = *(int *)argp;
+  int workers_size = ((int *)argp)[0];
+  int files_n = ((int *)argp)[1];
   int worker_index = 0;
   int finished_workers = 0;
   file_chunk_t *chunks[workers_size];
@@ -72,7 +69,7 @@ void *populator_lifecycle(void *argp)
   MPI_Request send_requests[workers_size];
   MPI_Request recv_requests[workers_size];
 
-  for (int i = 0; i < 1; i++)
+  for (int i = 0; i < files_n; i++)
   {
     results[i].file_id = i;
     results[i].words_number = 0;
@@ -133,7 +130,7 @@ void *populator_lifecycle(void *argp)
 
     if (finished_workers == workers_size)
     {
-      for (int file_index = 0; file_index < 5; file_index++)
+      for (int file_index = 0; file_index < files_n; file_index++)
       {
         printf("File: %1d\n", file_index);
         printf("Number of words: %d\n", results[file_index].words_number);
@@ -154,6 +151,7 @@ void dispatcher(int argc, char *argv[], int workers_size)
   int input = 0;
   int files_n = 0;
   char *files_paths[10];
+  pthread_t populator;
 
   while (input != -1)
   {
@@ -170,6 +168,11 @@ void dispatcher(int argc, char *argv[], int workers_size)
     printf("This application is meant to be run with at least 1 file.\n");
     MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
   }
+
+  int *populator_args = malloc(sizeof(int) * 2);
+  populator_args[0] = workers_size;
+  populator_args[1] = files_n;
+  pthread_create(&populator, NULL, populator_lifecycle, populator_args);
 
   for (int file_index = 0; file_index < files_n; file_index++)
   {
@@ -217,6 +220,8 @@ void dispatcher(int argc, char *argv[], int workers_size)
     chunk->file_id = -1;
     insert_fifo(&fifo, chunk);
   }
+
+  pthread_join(populator, NULL);
 }
 
 void worker(int rank)
