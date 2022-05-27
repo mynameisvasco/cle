@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "mpi.h"
 
 int is_vowel(unsigned int c);
 
@@ -11,3 +12,7 @@ int is_number(unsigned int c);
 int read_u8char(FILE *file);
 
 long get_needed_bytes(unsigned int n);
+
+MPI_Datatype MPI_CREATE_FILE_CHUNK_TYPE();
+
+MPI_Datatype MPI_CREATE_FILE_RESULTS_TYPE();

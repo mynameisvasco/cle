@@ -1,4 +1,5 @@
 #include "utf8.h"
+#include "fifo.h"
 
 int is_vowel(unsigned int c)
 {
@@ -115,4 +116,44 @@ long get_needed_bytes(unsigned int n)
   else if (n < 16777216)
     return 3;
   return 4;
+}
+
+MPI_Datatype MPI_CREATE_FILE_CHUNK_TYPE()
+{
+  MPI_Datatype file_chunk_type;
+  int lengths[2] = {1, CHUNK_SIZE};
+  MPI_Aint displacements[2];
+  struct file_chunk_t dummy;
+  MPI_Aint base_address;
+  MPI_Get_address(&dummy, &base_address);
+  MPI_Get_address(&dummy.file_id, &displacements[0]);
+  MPI_Get_address(&dummy.buffer, &displacements[1]);
+  displacements[0] = MPI_Aint_diff(displacements[0], base_address);
+  displacements[1] = MPI_Aint_diff(displacements[1], base_address);
+  MPI_Datatype types[2] = {MPI_INT, MPI_UNSIGNED};
+  MPI_Type_create_struct(2, lengths, displacements, types, &file_chunk_type);
+  MPI_Type_commit(&file_chunk_type);
+  return file_chunk_type;
+}
+
+MPI_Datatype MPI_CREATE_FILE_RESULTS_TYPE()
+{
+  MPI_Datatype file_results_type;
+  int lengths[4] = {1, 1, 1, 1};
+  MPI_Aint displacements[4];
+  struct file_result_t dummy;
+  MPI_Aint base_address;
+  MPI_Get_address(&dummy, &base_address);
+  MPI_Get_address(&dummy.file_id, &displacements[0]);
+  MPI_Get_address(&dummy.words_number, &displacements[1]);
+  MPI_Get_address(&dummy.words_vowel_start_number, &displacements[2]);
+  MPI_Get_address(&dummy.words_consonant_ending_number, &displacements[3]);
+  displacements[0] = MPI_Aint_diff(displacements[0], base_address);
+  displacements[1] = MPI_Aint_diff(displacements[1], base_address);
+  displacements[2] = MPI_Aint_diff(displacements[2], base_address);
+  displacements[3] = MPI_Aint_diff(displacements[3], base_address);
+  MPI_Datatype types[4] = {MPI_INT, MPI_UNSIGNED, MPI_UNSIGNED, MPI_UNSIGNED};
+  MPI_Type_create_struct(4, lengths, displacements, types, &file_results_type);
+  MPI_Type_commit(&file_results_type);
+  return file_results_type;
 }
