@@ -4,13 +4,15 @@
 #include <string.h>
 #include <unistd.h>
 #include "../common.h"
+#include "process_file.h"
 
 /*
  * Main method of the program
  *
- * Arguments - Runtime arguments 
+ * Arguments - Runtime arguments
  */
-int main(int argc, char** argv){
+int main(int argc, char **argv)
+{
     printf("%s Starting...\n", argv[0]);
 
     // set up device
@@ -21,16 +23,10 @@ int main(int argc, char** argv){
     CHECK(cudaSetDevice(dev));
 
     int files_n;
-    char* files_path[10];
-    double** results;
-    double** matrix;
-    int* specs
+    char *files_path[10];
+    double *results;
+    double *matrix;
     int input = 0;
-
-    results = malloc(sizeof(double**));
-    matrix = malloc(sizeof(double**));
-    specs = malloc(sizeof(int*))
-    
 
     while (input != -1)
     {
@@ -39,7 +35,8 @@ int main(int argc, char** argv){
             files_paths[files_n++] = optarg;
     }
 
-    for(int file_index = 0; i < file_index; i++){
+    for (int file_index = 0; i < files_n; i++)
+    {
         FILE *file = fopen(files_paths[file_index], "rb");
 
         if (file == NULL)
@@ -60,22 +57,36 @@ int main(int argc, char** argv){
             exit(1);
         }
 
-        results[file_index] = malloc(sizeof(double*) * matrix_count);
-        matrix[file_index] = malloc(sizeof(double*) * matrix_count);
-        specs[file_index*2] = matrix_count;
-        specs[file_index*2 + 1] = matrix_order;
+        results = malloc(sizeof(double) * matrix_count);
+        matrix = malloc(sizeof(double) * matrix_count * matrix_order * matrix_order);
 
-        for(int matrix_index = 0; matrix_index < matrix_count; matrix_index++){
-            int num_read = fread(matrix[file_index][matrix_index], sizeof(double), matrix_order * matrix_order, file);
-            if (num_read != (matrix_order * matrix_order))
-            {
-                perror("Error reading values from matrix!\n");
-                exit(2);
-            }
+        int num_read = fread(matrix, sizeof(double), matrix_order * matrix_order * matrix_count, file);
+        if (num_read != (matrix_order * matrix_order * matrix_count))
+        {
+            perror("Error reading values from matrix!\n");
+            exit(2);
         }
-        
 
+        dim3 grid, block;
+        grid.x = matrix_count;
+        grid.y = 1;
+        grid.z = 1;
+        block.x = matrix_order;
+        block.y = 1;
+        block.z = 1;
+
+        process_file << grid, block >> (matrix[file_index], results[file_index], matrix_count, matrix_order);
+
+        printf("\n\nProcessing file: %s\n", argv[file_index + 1]);
+        printf("Number of matrices to be read: %d\n", matrix_count);
+        printf("Matrices order: %d\n\n", matrix_order);
+
+        for (int matrix_index = 0; matrix_index < matrix_count; matrix_index++)
+        {
+            printf("Processing matrix %d\n", matrix_index + 1);
+            printf("The determinant is %.3e\n", results[matrix_index]);
+        }
+        free(matrix);
+        free(results);
     }
-
-
 }
