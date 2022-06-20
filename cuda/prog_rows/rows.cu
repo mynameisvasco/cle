@@ -22,12 +22,16 @@ int main(int argc, char **argv)
     printf("Using Device %d: %s\n", dev, deviceProp.name);
     CHECK(cudaSetDevice(dev));
 
+    // declare storage variables
     int files_n;
     char *files_path[10];
     double *results;
+    double *results_gpu;
     double *matrix;
+    double *matrix_gpu;
     int input = 0;
 
+    // parse command line arguments
     while (input != -1)
     {
         input = getopt(argc, argv, "f:");
@@ -35,6 +39,7 @@ int main(int argc, char **argv)
             files_paths[files_n++] = optarg;
     }
 
+    // process each file individually
     for (int file_index = 0; i < files_n; i++)
     {
         FILE *file = fopen(files_paths[file_index], "rb");
@@ -45,6 +50,7 @@ int main(int argc, char **argv)
             exit(1);
         }
 
+        // get the number o f matrices to process and their order
         int matrix_count, matrix_order;
         if (fread(&matrix_count, sizeof(int), 1, file) != 1)
         {
@@ -57,9 +63,10 @@ int main(int argc, char **argv)
             exit(1);
         }
 
-        results = malloc(sizeof(double) * matrix_count);
+        // allocate space on the Host for the matrices
         matrix = malloc(sizeof(double) * matrix_count * matrix_order * matrix_order);
 
+        // read the remaining contents of the file (all the matrices coefficients)
         int num_read = fread(matrix, sizeof(double), matrix_order * matrix_order * matrix_count, file);
         if (num_read != (matrix_order * matrix_order * matrix_count))
         {
@@ -67,16 +74,42 @@ int main(int argc, char **argv)
             exit(2);
         }
 
+        // prepare launching grid
         dim3 grid, block;
-        grid.x = matrix_count;
-        grid.y = 1;
+        grid.x = matrix_count / 2;
+        grid.y = matrix_count / 2;
         grid.z = 1;
-        block.x = matrix_order;
-        block.y = 1;
+        block.x = matrix_order / 2;
+        block.y = matrix_order / 2;
         block.z = 1;
 
-        process_file << grid, block >> (matrix[file_index], results[file_index], matrix_count, matrix_order);
+        // allocate space on the Device for the matrices and the results
+        cudaMalloc(results_gpu, sizeof(double) * matrix_count);
+        cudaMalloc(matrix_gpu, sizeof(double) * matrix_count * matrix_order * matrix_order);
 
+        // copy matrices to the Device
+        cudaMemcpy(matrix, matrix_gpu, sizeof(double) * matrix_count * matrix_order * matrix_order, cudaMemcpyHostToDevice);
+
+        // free matrices on Host
+        free(matrix);
+
+        // process file on GPU
+        process_file << grid, block >> (matrix, results, matrix_order);
+
+        // wait for processing to finish
+        cudaDeviceSynchronize();
+
+        // free matrices on Device
+        cudaFree(matrix_gpu);
+
+        // allocate space for results and copy them to Host
+        results = malloc(sizeof(double) * matrix_count);
+        cudaMemcpy(results_gpu, results, sizeof(double) * matrix_count, cudaMemcpyDeviceToHost);
+
+        // free results on Device
+        cudaFree(results_gpu);
+
+        // print results
         printf("\n\nProcessing file: %s\n", argv[file_index + 1]);
         printf("Number of matrices to be read: %d\n", matrix_count);
         printf("Matrices order: %d\n\n", matrix_order);
@@ -86,7 +119,7 @@ int main(int argc, char **argv)
             printf("Processing matrix %d\n", matrix_index + 1);
             printf("The determinant is %.3e\n", results[matrix_index]);
         }
-        free(matrix);
+
         free(results);
     }
 }

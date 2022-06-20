@@ -4,7 +4,7 @@
 #include "matrix.h"
 
 // Process all the matrices on a file
-__global__ process_file(double *matrix, double *results, int count, int order)
+__global__ process_file(double *matrix, double *results, int order)
 {
     // Identifier of the matrix
     int matrix_id = blockIdx.x + gridDim.x * blockIdx.y + gridDim.x * gridDim.y * blockIdx.z;
@@ -18,9 +18,11 @@ __global__ process_file(double *matrix, double *results, int count, int order)
     // Start of the row
     double *row = mat + (row_id * order);
 
+    // Position (i,i) of the matrix
     double *ii = row + row_id;
     unsigned int signal_reversion = 0;
 
+    // If position (i,i) is equal to 0 then look for a column different from 0 and swap
     if (*ii == 0.0)
     {
         for (int *i = ii + 1; i < ii + order; i++)
@@ -34,6 +36,7 @@ __global__ process_file(double *matrix, double *results, int count, int order)
         }
     }
 
+    // Apply the Guassian transformation
     for (int j = order - 1; j > row_id - 1; j--)
     {
         for (int k = row_id + 1; k < order; k++)
@@ -42,6 +45,7 @@ __global__ process_file(double *matrix, double *results, int count, int order)
         }
     }
 
+    // Update the result
     if (*ii == 0)
     {
         results[matrix_id] = 0;
