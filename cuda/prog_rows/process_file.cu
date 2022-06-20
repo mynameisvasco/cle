@@ -25,7 +25,8 @@ __global__ process_file(double *matrix, double *results, int order)
     // If position (i,i) is equal to 0 then look for a column different from 0 and swap
     if (*ii == 0.0)
     {
-        for (int *i = ii + 1; i < ii + order; i++)
+        double *i = ii + sizeof(double);
+        for (; i < ii + order * sizeof(double); i++)
         {
             if (*i != 0)
             {
@@ -41,17 +42,17 @@ __global__ process_file(double *matrix, double *results, int order)
     {
         for (int k = row_id + 1; k < order; k++)
         {
-            transformation(&mat[order * k + j], mat[order * k + row_id], *ii, mat[order * row_id + j]);
+            mat[order * k + j] = mat[order * k + j] - ((mat[order * k + row_id] / *ii) * mat[order * row_id + j]);
         }
     }
 
     // Update the result
     if (*ii == 0)
     {
-        results[matrix_id] = 0;
+        results[matrix_id * order + row_id] = 0;
     }
     else
     {
-        results[matrix_id] *= (*ii);
+        results[matrix_id * order + row_id] = (*ii);
     }
 }

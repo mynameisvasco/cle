@@ -64,7 +64,7 @@ int main(int argc, char **argv)
         }
 
         // allocate space on the Host for the matrices
-        matrix = malloc(sizeof(double) * matrix_count * matrix_order * matrix_order);
+        matrix = (double *)malloc(sizeof(double) * matrix_count * matrix_order * matrix_order);
 
         // read the remaining contents of the file (all the matrices coefficients)
         int num_read = fread(matrix, sizeof(double), matrix_order * matrix_order * matrix_count, file);
@@ -76,25 +76,32 @@ int main(int argc, char **argv)
 
         // prepare launching grid
         dim3 grid, block;
-        grid.x = matrix_count / 2;
-        grid.y = matrix_count / 2;
+        grid.x = matrix_count;
+        grid.y = 1;
         grid.z = 1;
-        block.x = matrix_order / 2;
-        block.y = matrix_order / 2;
+        block.x = matrix_order;
+        block.y = 1;
         block.z = 1;
 
+        // allocate space for Host results
+        results = (double *)malloc(sizeof(double) * matrix_count * matrix_order);
+
+        // initialize Host results with 1
+        memset(results, 1, sizeof(double) * matrix_count * matrix_order);
+
         // allocate space on the Device for the matrices and the results
-        cudaMalloc(results_gpu, sizeof(double) * matrix_count);
+        cudaMalloc(results_gpu, sizeof(double) * matrix_count * matrix_order);
         cudaMalloc(matrix_gpu, sizeof(double) * matrix_count * matrix_order * matrix_order);
 
-        // copy matrices to the Device
+        // copy matrices and results to the Device
         cudaMemcpy(matrix, matrix_gpu, sizeof(double) * matrix_count * matrix_order * matrix_order, cudaMemcpyHostToDevice);
+        cudaMemcpy(results, results_gpu, sizeof(double) * matrix_count * matrix_order, cudaMemcpyHostToDevice);
 
         // free matrices on Host
         free(matrix);
 
         // process file on GPU
-        process_file << grid, block >> (matrix, results, matrix_order);
+        process_file<<<grid, block>>>(matrix, results, matrix_order);
 
         // wait for processing to finish
         cudaDeviceSynchronize();
@@ -102,9 +109,8 @@ int main(int argc, char **argv)
         // free matrices on Device
         cudaFree(matrix_gpu);
 
-        // allocate space for results and copy them to Host
-        results = malloc(sizeof(double) * matrix_count);
-        cudaMemcpy(results_gpu, results, sizeof(double) * matrix_count, cudaMemcpyDeviceToHost);
+        // copy results to Host
+        cudaMemcpy(results, results_gpu, sizeof(double) * matrix_count * matrix_order, cudaMemcpyDeviceToHost);
 
         // free results on Device
         cudaFree(results_gpu);
@@ -117,7 +123,12 @@ int main(int argc, char **argv)
         for (int matrix_index = 0; matrix_index < matrix_count; matrix_index++)
         {
             printf("Processing matrix %d\n", matrix_index + 1);
-            printf("The determinant is %.3e\n", results[matrix_index]);
+            double determinant = 1.0;
+            for (int res = 0; res < matrix_order; res++)
+            {
+                determinant *= results[matrix_index * matrix_order + res];
+            }
+            printf("The determinant is %.3e\n", res);
         }
 
         free(results);
