@@ -4,12 +4,18 @@
 #include <unistd.h>
 #include "common.h"
 
+/**
+ * Calculates the determinant using gaussian elimination of multiple matrices;
+ * @param[in] matrix
+ * @param[in] order
+ * @param[out] results
+ */
 __global__ static void process_matrices(double *matrix, double *results, int order);
 
-/*
- * Main method of the program
- *
- * Arguments - Runtime arguments
+/**
+ * Entry point of the program
+ * @param[in] argc  number of strings pointed to by argv
+ * @param[in] argv  array of arguments
  */
 int main(int argc, char **argv)
 {
